@@ -63,6 +63,6 @@ $: sessionDataParsed = parseSensorData(sessionData);
             }
         },
         "curve": "curveMonotoneX",
-        "height": "600px"
+        "height": "720px"
     }}
     />

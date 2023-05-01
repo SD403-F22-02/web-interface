@@ -21,6 +21,8 @@ let device:BluetoothDevice;
 let commandCharacteristic:BluetoothRemoteGATTCharacteristic; // send command to command char to tell the sensor to send data
 let dataCharacteristic:BluetoothRemoteGATTCharacteristic; // send data when the command char receives the command
 
+const textdec = new TextDecoder('utf-8');
+
 const sleep = (milliseconds: number) => {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
@@ -49,8 +51,13 @@ export const pairDevice = async () => {
         console.log('No GATT server found!!1');
         return;
     }
-    
-    const gattserver = await device.gatt.connect();
+
+    const gattserver = device.gatt;
+    while(!gattserver.connected){
+        console.log('Attempting to connect to GATT server');
+        await gattserver.connect();
+        sleep(500);
+    }
     const services = await gattserver.getPrimaryServices();
     const imuService = services[0];
     console.log(imuService);
@@ -61,6 +68,46 @@ export const pairDevice = async () => {
 
     console.log(dataCharacteristic, commandCharacteristic);
     return device;
+}
+
+export const forgetDevice = async () => {
+    if(!device){
+        console.log('No device to forget');
+        return 1;
+    }
+    console.log('forgetting device');
+    await device.forget();
+    return 0;
+}
+
+export const startSession = async () => {
+    if(!device){
+        console.log('No device paired');
+        return 1;
+    }
+
+    await commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('s'));
+    while(1){
+        sleep(100);
+        let value = textdec.decode(await commandCharacteristic.readValue());
+        if(value.includes('started session')) break;
+    }
+    return 0;
+}
+
+export const stopSession = async () => {
+    if(!device){
+        console.log('No device paired');
+        return 1;
+    }
+
+    await commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('x'));
+    while(1){
+        sleep(100);
+        let value = textdec.decode(await commandCharacteristic.readValue());
+        if(value.includes('stopped session')) break;
+    }
+    return 0;
 }
 
 export const getSessionData = async () => {
@@ -74,14 +121,15 @@ export const getSessionData = async () => {
     console.log('getSessionData not implemented yet!!!11');
     // return mockdata.rawdata100;
     let rawdata = []
-    let textdec = new TextDecoder('utf-8');
+
+    const onDataChange = (ev)=>{
+        let val = (ev.target as any).value;
+        console.log(textdec.decode(val));
+        rawdata.push(textdec.decode(val));
+    }
 
     dataCharacteristic.startNotifications().then((_)=>{
-        dataCharacteristic.addEventListener('characteristicvaluechanged', (ev)=>{
-            let val = (ev.target as any).value;
-            console.log(textdec.decode(val));
-            rawdata.push(textdec.decode(val));
-        })
+        dataCharacteristic.addEventListener('characteristicvaluechanged', onDataChange)
     })
 
     console.log('sending g');
@@ -91,7 +139,8 @@ export const getSessionData = async () => {
         let value = textdec.decode(await commandCharacteristic.readValue());
         if(value.includes('done')) break;
     }
-
+    dataCharacteristic.removeEventListener('characteristicvaluechanged', onDataChange);
+    
     rawdata = rawdata.map((line:string)=>{
         return lineParser(line);
     })
