@@ -1,5 +1,5 @@
 <script lang="ts">
-import {pairDevice, getSessionData, forgetDevice, startSession, stopSession} from './sensor';
+import {pairDevice, getSessionData, forgetDevice, startSession, stopSession, progressReport} from './sensor';
 
 export let sessionData:any[];
 let deviceName = 'No device paired';
@@ -7,6 +7,10 @@ let infoMsgType = 'info';
 let infoMsg = '';
 
 let activeSession = false;
+$: progress = progressReport;
+// $: {
+//     progress = progress;
+// }
 
 const message = (type, message) => {
     infoMsgType = type;
@@ -50,11 +54,12 @@ const startSessionButton = async() => {
 const stopSessionButton = async() => {
     const res = await stopSession();
     if(res){
-        message('error', 'No device paired.')
+        message('error', 'No device paired.');
         return;
     }
     activeSession = false;
     message('info', 'Stop session command sent');
+    console.log(`Progress is ${progressReport}`)
 }
 </script>
 
@@ -62,19 +67,20 @@ const stopSessionButton = async() => {
     <h1>SD405-S23-02 Sensor Data</h1>
     <p class={infoMsgType}>{infoMsg}</p>
     <h4>Paired to: {deviceName}</h4>
+
     <button on:click={async()=>await pairDeviceButton()}>pairDevice</button>
     <button on:click={async()=>await forgetDeviceButton()}>forgetDevice</button>
     
     <button on:click={async()=>await getSessionDataButton()}>getSessionData</button>
-    <button on:click={async()=>await stopSessionButton()}>stopSession</button>
-    <button on:click={async()=>await startSessionButton()}>startSession</button>
+    <!-- <button on:click={async()=>await stopSessionButton()}>stopSession</button>
+    <button on:click={async()=>await startSessionButton()}>startSession</button> -->
 
-    <!-- {#if !activeSession}
+    {#if !activeSession}
     <button on:click={async()=>await startSessionButton()}>startSession</button>
     {/if}
     {#if activeSession}
     <button on:click={async()=>await stopSessionButton()}>stopSession</button>
-    {/if} -->
+    {/if}
 
 </section>
 

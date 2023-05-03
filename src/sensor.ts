@@ -1,27 +1,12 @@
-// const device = await navigator.bluetooth.requestDevice({
-//     acceptAllDevices: true,
-//     optionalServices: [0x180F]
-// });
-// const gattserver = await device.gatt?.connect();
-// const battservice = await gattserver?.getPrimaryServices();
-// // const charics = await battservice?[0].getCharacteristics();
-// const charics = await battservice[0].getCharacteristics();
-// const battChar = charics[0];
-// let reading = await battChar.readValue();
-
-// for (let i = 0; i < 100; i++) {
-//     reading = await battChar.readValue();
-//     console.log(reading.getUint8());
-//     await sleep(200);
-// }
-
-import mockdata from './mockdata'
-
 let device:BluetoothDevice;
 let commandCharacteristic:BluetoothRemoteGATTCharacteristic; // send command to command char to tell the sensor to send data
 let dataCharacteristic:BluetoothRemoteGATTCharacteristic; // send data when the command char receives the command
 
 const textdec = new TextDecoder('utf-8');
+
+export let progressReport = '';
+let progressReportActive = false;
+let sessionLength;
 
 const sleep = (milliseconds: number) => {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -30,6 +15,10 @@ const sleep = (milliseconds: number) => {
 const lineParser = (line:string) => {
     const [time_ms, roll, pitch, yaw] = line.split(',').map(parseFloat);
     return {time_ms, roll, pitch, yaw};
+}
+
+const resetVars = () => {
+    progressReport = '';
 }
 
 export const pairDevice = async () => {
@@ -43,30 +32,19 @@ export const pairDevice = async () => {
         optionalServices: [0x580A]
     });
 
-    if(!device){
-        console.log('No device paired!!!');
-        return;
-    }
-    if(!device.gatt){
-        console.log('No GATT server found!!1');
-        return;
-    }
+    await device.gatt.connect()
+    .then((gattserver) => gattserver.getPrimaryServices())
+    .then((services) => services[0].getCharacteristics())
+    .then((imuCharacteristics) => {
+        dataCharacteristic = imuCharacteristics[0];
+        commandCharacteristic = imuCharacteristics[1];
+    })
 
-    const gattserver = device.gatt;
-    while(!gattserver.connected){
-        console.log('Attempting to connect to GATT server');
-        await gattserver.connect();
-        sleep(500);
-    }
-    const services = await gattserver.getPrimaryServices();
-    const imuService = services[0];
-    console.log(imuService);
-    const imuCharacteristics = await imuService.getCharacteristics();
-    console.log(imuCharacteristics);
-    dataCharacteristic = imuCharacteristics[0];
-    commandCharacteristic = imuCharacteristics[1];
+    await dataCharacteristic.startNotifications();
+    await commandCharacteristic.startNotifications();
 
     console.log(dataCharacteristic, commandCharacteristic);
+    resetVars();
     return device;
 }
 
@@ -77,7 +55,33 @@ export const forgetDevice = async () => {
     }
     console.log('forgetting device');
     await device.forget();
+    resetVars();
     return 0;
+}
+
+// export function* progressReportGenerator(){
+//     if(!progressReportActive){ 
+//         console.log('Progress Report is not active');
+//         return '';
+//     }
+//     let previousProgressReport = '';
+//     console.log('Update progress report');
+//     yield 'Progress 1';
+//     yield 'Progress 2';
+//     yield 'Progress 3';
+//     yield 'Progress 4';
+//     while(progressReportActive){
+//         console.log(progressReport);
+//         if(progressReport == previousProgressReport) continue;
+//         yield progressReport;
+//     }
+//     return 'Progress final';
+// }
+
+const sessionProgressReport = (ev) => {
+    let currentSessionLength = textdec.decode((ev.target as any).value);
+    progressReport = `Session Length: ${currentSessionLength}s`;
+    console.log(progressReport);
 }
 
 export const startSession = async () => {
@@ -86,13 +90,13 @@ export const startSession = async () => {
         return 1;
     }
 
-    await commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('s'));
-    while(1){
-        sleep(100);
-        let value = textdec.decode(await commandCharacteristic.readValue());
-        if(value.includes('started session')) break;
-    }
-    return 0;
+    return commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('s'))
+    .then(()=>{
+        commandCharacteristic.addEventListener('characteristicvaluechanged', sessionProgressReport);
+        progressReportActive = true;
+        console.log('sessionProgressReport event listener added');
+        return 0;
+    })
 }
 
 export const stopSession = async () => {
@@ -100,14 +104,23 @@ export const stopSession = async () => {
         console.log('No device paired');
         return 1;
     }
+    progressReportActive = false;
+    commandCharacteristic.removeEventListener('characteristicvaluechanged', sessionProgressReport);
+    // await commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('x'));
+    // while(1){
+    //     await sleep(100);
+    //     let value = textdec.decode(await commandCharacteristic.readValue());
+    //     if(value.includes('stopped session')) break;
+    // }
+    console.log(`ProgressReport is currently ${progressReport}`);
 
-    await commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('x'));
-    while(1){
-        sleep(100);
-        let value = textdec.decode(await commandCharacteristic.readValue());
-        if(value.includes('stopped session')) break;
-    }
-    return 0;
+    return commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('x'))
+    .then(() => commandCharacteristic.readValue())
+    .then((value) => {
+        sessionLength = textdec.decode(value);
+        console.log(sessionLength);
+        return 0;
+    })
 }
 
 export const getSessionData = async () => {
@@ -118,8 +131,6 @@ export const getSessionData = async () => {
     if(!device){
         console.log('No device selected!');
     }
-    console.log('getSessionData not implemented yet!!!11');
-    // return mockdata.rawdata100;
     let rawdata = []
 
     const onDataChange = (ev)=>{
@@ -128,14 +139,12 @@ export const getSessionData = async () => {
         rawdata.push(textdec.decode(val));
     }
 
-    dataCharacteristic.startNotifications().then((_)=>{
-        dataCharacteristic.addEventListener('characteristicvaluechanged', onDataChange)
-    })
+    dataCharacteristic.addEventListener('characteristicvaluechanged', onDataChange);
 
     console.log('sending g');
     await commandCharacteristic.writeValueWithResponse(new TextEncoder().encode('g'));
     while(1){
-        sleep(100);
+        await sleep(100);
         let value = textdec.decode(await commandCharacteristic.readValue());
         if(value.includes('done')) break;
     }

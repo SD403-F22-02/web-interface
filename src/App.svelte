@@ -1,5 +1,4 @@
 <script lang="ts">
-import {pairDevice, getSessionData} from './sensor';
 import Device from './Device.svelte';
 import Plotter from './Plotter.svelte';
 import LineChartExample from './LineChartExample.svelte';
