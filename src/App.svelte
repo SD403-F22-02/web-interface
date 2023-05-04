@@ -1,7 +1,6 @@
 <script lang="ts">
 import Device from './Device.svelte';
 import Plotter from './Plotter.svelte';
-import LineChartExample from './LineChartExample.svelte';
 
 let sessionData:any[];
 
